@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { ToastContainer, toast } from "react-toastify";
-import * as bootstrap from "bootstrap";
+import { Modal } from "bootstrap";
 import axios from "axios";
 import "./assets/style.css";
 import ProductModal from "./assets/components/ProductModal";
+import Pagination from "./assets/components/Pagination";
+import Login from "./views/Login";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
 const API_PATH = import.meta.env.VITE_API_PATH;
+
 //建立初始化資料
 const INITIAL_TEMPLATE_DATA = {
   id: "",
@@ -20,73 +23,18 @@ const INITIAL_TEMPLATE_DATA = {
   is_enabled: false,
   imageUrl: "",
   imagesUrl: [],
+  vegetarian: "",
 };
 
 function App() {
-  const [formData, setFormData] = useState({
-    username: "",
-    password: "",
-  });
   const [isAuth, setIsAuth] = useState(false);
   const [products, setproducts] = useState([]);
   const [templateProduct, setTemplateProduct] = useState(INITIAL_TEMPLATE_DATA);
   //控制目前modal是新增還是編輯還是刪除
   const [modalType, setModalType] = useState("");
-
+  //分業物件
+  const [pagination, setPageination] = useState({});
   const productsModalRef = useRef(null);
-  //登入
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((preData) => ({ ...preData, [name]: value }));
-  };
-  //改變圖片值方法
-  const handleModalImageChange = (index, value) => {
-    setTemplateProduct((pre) => {
-      //解構方式先取得原本的原本陣列(陣列物件要改要複製一份出來)
-      const newImages = [...pre.imagesUrl];
-      //取得要改變的值的index
-      newImages[index] = value;
-      return {
-        ...pre,
-        imagesUrl: newImages,
-      };
-    });
-  };
-
-  const handleAddImage = () => {
-    setTemplateProduct((pre) => {
-      //解構方式先取得原本的原本陣列(陣列物件要改要複製一份出來)
-      const newImages = [...pre.imagesUrl];
-      //多一筆空字串
-      newImages.push("");
-      return {
-        ...pre,
-        imagesUrl: newImages,
-      };
-    });
-  };
-  const handeleRemoveImage = () => {
-    setTemplateProduct((pre) => {
-      //解構方式先取得原本的原本陣列(陣列物件要改要複製一份出來)
-      const newImages = [...pre.imagesUrl];
-      //刪除最後一筆資料
-      newImages.pop();
-      return {
-        ...pre,
-        imagesUrl: newImages,
-      };
-    });
-  };
-  //新增編輯資料表單
-  const handleModalInputChange = (e) => {
-    //取checkbox值checked
-    const { name, value, checked, type } = e.target;
-    //判斷type是否為checkbox，如果不是要取input value
-    setTemplateProduct((preData) => ({
-      ...preData,
-      [name]: type === "checkbox" ? checked : value,
-    }));
-  };
 
   //Cookie存取函式
   const saveToken = (token, expired) => {
@@ -94,23 +42,6 @@ function App() {
     //如果登入成功取得token帶入header
     axios.defaults.headers.common["Authorization"] = token;
   };
-  //表單按鈕驗證+token存取
-  const onSubmit = async (e) => {
-    try {
-      e.preventDefault(); // 阻止表單自動刷新
-      const res = await axios.post(`${API_BASE}/admin/signin`, formData);
-      const { token, expired } = res.data; // 先在這裡拿到
-      saveToken(token, expired); // 再傳給函式
-
-      getProducts();
-      setIsAuth(true);
-    } catch (error) {
-      const message = error.response?.data?.message || "表單驗證失敗";
-      toast.error(message);
-      setIsAuth(false);
-    }
-  };
-
   //Cookie取得函式
   const loadToken = () => {
     const token = document.cookie
@@ -133,113 +64,53 @@ function App() {
         setIsAuth(true);
         getProducts();
       } catch (error) {
-        const message = error.response?.data?.message || "登入失敗";
-        toast.error(message);
+        const messages = error.response?.data?.message;
+        toast.error(
+          Array.isArray(messages)
+            ? messages.join(", ")
+            : messages || "登入失敗",
+        );
         setIsAuth(false);
       }
     };
-    productsModalRef.current = new bootstrap.Modal("#productModal");
+    productsModalRef.current = new Modal(
+      document.getElementById("productModal"),
+    );
     checkLogin();
   }, []);
 
   const openModal = (type, product) => {
     setModalType(type);
-    setTemplateProduct((pre) => ({ ...pre, ...product }));
+    setTemplateProduct(() => ({ ...INITIAL_TEMPLATE_DATA, ...product }));
     productsModalRef.current.show();
   };
   const closeModal = () => {
     productsModalRef.current.hide();
   };
 
-  const getProducts = async () => {
+  const getProducts = async (page = 1) => {
     try {
-      const res = await axios.get(`${API_BASE}/api/${API_PATH}/admin/products`);
-      setproducts(res.data.products);
-    } catch (error) {
-      const message = error.response?.data?.message || "取得商品失敗";
-      toast.error(message);
-    }
-  };
-  //更新產品
-  const updataProduct = async (id) => {
-    let url = `${API_BASE}/api/${API_PATH}/admin/product`;
-    let method = "post";
-
-    //如果是編輯就要改變url
-    if (modalType === "edit") {
-      url = `${API_BASE}/api/${API_PATH}/admin/product/${id}`;
-      method = "put";
-    }
-    const productData = {
-      //送出資料前資料做轉換
-      data: {
-        ...templateProduct,
-        origin_price: Number(templateProduct.origin_price),
-        price: Number(templateProduct.price),
-        is_enabled: templateProduct.is_enabled ? 1 : 0,
-        //防呆避免圖片之前被傳入空的input，url不等於空字串就新增一個陣列進去
-        imagesUrl: [...templateProduct.imagesUrl.filter((url) => url !== "")],
-      },
-    };
-    try {
-      const res = await axios[method](url, productData);
-      getProducts();
-      closeModal();
-      toast.error("新增成功");
-    } catch (error) {
-      const message = error.response?.data?.message || "新增編輯失敗";
-      toast.error(message);
-    }
-  };
-
-  //刪除功能
-  const delProduct = async (id) => {
-    try {
-      const res = await axios.delete(
-        `${API_BASE}/api/${API_PATH}/admin/product/${id}`,
+      const res = await axios.get(
+        `${API_BASE}/api/${API_PATH}/admin/products?page=${page}`,
       );
-      getProducts();
-      closeModal();
-      toast.error("刪除成功");
+      setproducts(res.data.products);
+      //取得物件時也要取得分頁結構
+      setPageination(res.data.pagination);
     } catch (error) {
-      const message = error.response?.data?.message || "刪除失敗";
-      toast.error(message);
+      const messages = error.response?.data?.message;
+      toast.error(
+        Array.isArray(messages)
+          ? messages.join(", ")
+          : messages || "取得商品失敗",
+      );
     }
   };
+
   return (
     <>
       <ToastContainer position="top-right" autoClose={3000} />
       {!isAuth ? (
-        <div className="container login">
-          <h1>請登入</h1>
-          <form className="form-floating " onSubmit={onSubmit}>
-            <div className="form-floating mb-3">
-              <input
-                type="email"
-                className="form-control"
-                name="username"
-                placeholder="name@example.com"
-                value={formData.username}
-                onChange={handleInputChange}
-              />
-              <label htmlFor="username">Email address</label>
-            </div>
-            <div className="form-floating">
-              <input
-                type="password"
-                className="form-control"
-                name="password"
-                placeholder="Password"
-                value={formData.password}
-                onChange={(e) => handleInputChange(e)}
-              />
-              <label htmlFor="password">Password</label>
-            </div>
-            <button type="submit" className="btn btn-primary w-100 mt-3">
-              登入
-            </button>
-          </form>
-        </div>
+        <Login getProducts={getProducts} setIsAuth={setIsAuth} />
       ) : (
         <div className="container mt-4">
           <h2 className="fw-bold dark-coffee-text mb-3">產品列表</h2>
@@ -300,17 +171,13 @@ function App() {
               ))}
             </tbody>
           </table>
+          <Pagination pagination={pagination} onChangePage={getProducts} />
         </div>
       )}
       <ProductModal
         modalType={modalType}
         templateProduct={templateProduct}
-        handleModalInputChange={handleModalInputChange}
-        handleModalImageChange={handleModalImageChange}
-        handleAddImage={handleAddImage}
-        handeleRemoveImage={handeleRemoveImage}
-        delProduct={delProduct}
-        updataProduct={updataProduct}
+        getProducts={getProducts}
         closeModal={closeModal}
       />
     </>
